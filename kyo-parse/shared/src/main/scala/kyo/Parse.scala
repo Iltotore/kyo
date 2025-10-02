@@ -39,10 +39,10 @@ object Parse:
 
     enum Op[In, +Out]:
         case ModifyState(modify: ParseState[In] => (ParseState[In], Maybe[Out]))
-        case Attempt[In, A, S](parser: A < (Parse[In] & S))                                              extends Op[In, Maybe[A] < S]
-        case Require[In, A, S](parser: A < (Parse[In] & S))                                              extends Op[In, A < S]
-        case RecoverWith[In, A, S](parser: A < (Parse[In] & S), recoverStrategy: RecoverStrategy[In, A]) extends Op[In, A < S]
-        case Discard[In, A, S](parser: A < (Parse[In] & S), isDiscarded: In => Boolean)                  extends Op[In, A < S]
+        case Attempt[In, A, S](parser: A < (Parse[In] & S))                                                     extends Op[In, Maybe[A] < S]
+        case Require[In, A, S](parser: A < (Parse[In] & S))                                                     extends Op[In, A < S]
+        case RecoverWith[In, A, S](parser: A < (Parse[In] & S), recoverStrategy: RecoverStrategy[In, A])        extends Op[In, A < S]
+        case Discard[In, A, S](parser: A < (Parse[In] & S), isDiscarded: In => Boolean, overrideOuter: Boolean) extends Op[In, A < S]
     end Op
 
     inline def modifyState[Out](using
@@ -236,11 +236,15 @@ object Parse:
       * @return
       *   A computation where all parsing operations handle surrounding whitespace
       */
-    inline def spaced[In, Out, S](parser: Out < (Parse[In] & S), isWhitespace: In => Boolean = (_: Char).isWhitespace)(using
+    inline def spaced[In, Out, S](
+        parser: Out < (Parse[In] & S),
+        isWhitespace: In => Boolean = (_: Char).isWhitespace,
+        overrideOuter: Boolean = false
+    )(using
         inline tag: Tag[Parse[In]],
         frame: Frame
     ): Out < (Parse[In] & S) =
-        ArrowEffect.suspendWith(tag, Op.Discard(parser, isWhitespace))(x => x)
+        ArrowEffect.suspendWith(tag, Op.Discard(parser, isWhitespace, overrideOuter))(x => x)
 
     def readOne[In, Out](f: In => Result[Chunk[String], Out])(using Tag[Parse[In]], Frame): Out < Parse[In] =
         read(input =>
@@ -942,10 +946,10 @@ object Parse:
                                         case Present(out) => Loop.continue(parseState, cont(Kyo.lift(out)))
                                 )
 
-                        case Op.Discard(parser: (Out < Parse[In]) @unchecked, isDiscarded) =>
+                        case Op.Discard(parser: (Out < Parse[In]) @unchecked, isDiscarded, overrideOuter) =>
                             val oldIsDiscarded = state.isDiscarded
                             runState(
-                                state.copy(isDiscarded = token => oldIsDiscarded(token) || isDiscarded(token))
+                                state.copy(isDiscarded = token => isDiscarded(token) || (!overrideOuter && oldIsDiscarded(token)))
                             )(parser)
                                 .map((parseState, result) =>
                                     val finalState = parseState.copy(isDiscarded = oldIsDiscarded)
