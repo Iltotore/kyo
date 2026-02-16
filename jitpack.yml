@@ -1,2 +1,5 @@
 jdk:
   - openjdk21
+
+install:
+  - sbt -Dsbt.log.noformat=true clean publishM2 kyoNative/publishM2
